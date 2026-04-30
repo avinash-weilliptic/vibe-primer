@@ -38,6 +38,7 @@ export default async function ProjectKanbanPage({
     tasks: column.tasks.map((task) => ({
       id: task.id,
       title: task.title,
+      description: task.description,
       priority: task.priority,
       labels: task.labels.map((tl) => ({
         id: tl.label.id,

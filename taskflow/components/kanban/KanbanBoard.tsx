@@ -15,6 +15,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useKanbanDnd } from "@/hooks/useKanbanDnd";
 import { createTask } from "@/lib/actions/tasks";
+import { TaskDrawer } from "./TaskDrawer";
 
 export type KanbanPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
@@ -27,6 +28,7 @@ export type KanbanLabel = {
 export type KanbanTask = {
   id: string;
   title: string;
+  description: string | null;
   priority: KanbanPriority;
   labels: KanbanLabel[];
 };
@@ -61,6 +63,12 @@ export function KanbanBoard({ projectId, columns: initialColumns }: Props) {
     handleDragCancel,
   } = useKanbanDnd(initialColumns);
 
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const selectedTask = selectedTaskId
+    ? columns.flatMap((c) => c.tasks).find((t) => t.id === selectedTaskId) ??
+      null
+    : null;
+
   async function addTask(columnId: string, title: string) {
     const created = await createTask(projectId, columnId, title, "MEDIUM");
     setColumns((prev) =>
@@ -69,6 +77,24 @@ export function KanbanBoard({ projectId, columns: initialColumns }: Props) {
           ? { ...col, tasks: [...col.tasks, created] }
           : col,
       ),
+    );
+  }
+
+  function applyTaskUpdate(
+    taskId: string,
+    fields: {
+      title: string;
+      description: string | null;
+      priority: KanbanPriority;
+    },
+  ) {
+    setColumns((prev) =>
+      prev.map((col) => ({
+        ...col,
+        tasks: col.tasks.map((t) =>
+          t.id === taskId ? { ...t, ...fields } : t,
+        ),
+      })),
     );
   }
 
@@ -83,12 +109,24 @@ export function KanbanBoard({ projectId, columns: initialColumns }: Props) {
     >
       <div className="flex h-[calc(100vh-180px)] gap-4 overflow-x-auto pb-4">
         {columns.map((column) => (
-          <ColumnView key={column.id} column={column} onAddTask={addTask} />
+          <ColumnView
+            key={column.id}
+            column={column}
+            onAddTask={addTask}
+            onSelectTask={setSelectedTaskId}
+          />
         ))}
       </div>
       <DragOverlay dropAnimation={null}>
         {activeTask ? <TaskCardView task={activeTask} overlay /> : null}
       </DragOverlay>
+      {selectedTask && (
+        <TaskDrawer
+          task={selectedTask}
+          onClose={() => setSelectedTaskId(null)}
+          onSaved={(fields) => applyTaskUpdate(selectedTask.id, fields)}
+        />
+      )}
     </DndContext>
   );
 }
@@ -96,9 +134,11 @@ export function KanbanBoard({ projectId, columns: initialColumns }: Props) {
 function ColumnView({
   column,
   onAddTask,
+  onSelectTask,
 }: {
   column: KanbanColumn;
   onAddTask: (columnId: string, title: string) => Promise<void>;
+  onSelectTask: (taskId: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
@@ -121,7 +161,11 @@ function ColumnView({
       >
         <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
           {column.tasks.map((task) => (
-            <SortableTaskCard key={task.id} task={task} />
+            <SortableTaskCard
+              key={task.id}
+              task={task}
+              onSelect={() => onSelectTask(task.id)}
+            />
           ))}
           {column.tasks.length === 0 && (
             <p className="px-1 py-2 text-xs text-gray-400">No tasks</p>
@@ -215,7 +259,13 @@ function AddTaskForm({
   );
 }
 
-function SortableTaskCard({ task }: { task: KanbanTask }) {
+function SortableTaskCard({
+  task,
+  onSelect,
+}: {
+  task: KanbanTask;
+  onSelect: () => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: task.id, data: { type: "task" } });
 
@@ -226,7 +276,13 @@ function SortableTaskCard({ task }: { task: KanbanTask }) {
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onClick={onSelect}
+    >
       <TaskCardView task={task} />
     </div>
   );
