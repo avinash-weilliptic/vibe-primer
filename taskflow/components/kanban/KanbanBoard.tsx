@@ -1,5 +1,19 @@
 "use client";
 
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  useDroppable,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { useKanbanDnd } from "@/hooks/useKanbanDnd";
+
 export type KanbanPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
 export type KanbanLabel = {
@@ -32,52 +46,120 @@ const PRIORITY_STYLES: Record<KanbanPriority, string> = {
   URGENT: "bg-red-50 text-red-700 ring-red-200",
 };
 
-export function KanbanBoard({ columns }: Props) {
+export function KanbanBoard({ columns: initialColumns }: Props) {
+  const {
+    columns,
+    activeTask,
+    sensors,
+    handleDragStart,
+    handleDragOver,
+    handleDragEnd,
+    handleDragCancel,
+  } = useKanbanDnd(initialColumns);
+
   return (
-    <div className="flex h-[calc(100vh-180px)] gap-4 overflow-x-auto pb-4">
-      {columns.map((column) => (
-        <div
-          key={column.id}
-          className="flex w-[280px] flex-shrink-0 flex-col rounded-lg bg-gray-50 ring-1 ring-gray-200"
-        >
-          <header className="border-b border-gray-200 px-3 py-3">
-            <h2 className="text-sm font-semibold text-gray-700">
-              {column.name}
-            </h2>
-          </header>
-          <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
-            {column.tasks.map((task) => (
-              <article
-                key={task.id}
-                className="rounded-md bg-white p-3 shadow-sm ring-1 ring-gray-200/70"
-              >
-                <h3 className="text-sm font-medium text-gray-900">
-                  {task.title}
-                </h3>
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset ${PRIORITY_STYLES[task.priority]}`}
-                  >
-                    {task.priority}
-                  </span>
-                  {task.labels.map((label) => (
-                    <span
-                      key={label.id}
-                      className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
-                      style={{ backgroundColor: label.color }}
-                    >
-                      {label.name}
-                    </span>
-                  ))}
-                </div>
-              </article>
-            ))}
-            {column.tasks.length === 0 && (
-              <p className="px-1 py-2 text-xs text-gray-400">No tasks</p>
-            )}
-          </div>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
+      <div className="flex h-[calc(100vh-180px)] gap-4 overflow-x-auto pb-4">
+        {columns.map((column) => (
+          <ColumnView key={column.id} column={column} />
+        ))}
+      </div>
+      <DragOverlay dropAnimation={null}>
+        {activeTask ? <TaskCardView task={activeTask} overlay /> : null}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+function ColumnView({ column }: { column: KanbanColumn }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: column.id,
+    data: { type: "column" },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex w-[280px] flex-shrink-0 flex-col rounded-lg bg-gray-50 ring-1 transition-colors ${
+        isOver ? "ring-blue-300" : "ring-gray-200"
+      }`}
+    >
+      <header className="border-b border-gray-200 px-3 py-3">
+        <h2 className="text-sm font-semibold text-gray-700">{column.name}</h2>
+      </header>
+      <SortableContext
+        items={column.tasks.map((t) => t.id)}
+        strategy={verticalListSortingStrategy}
+      >
+        <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
+          {column.tasks.map((task) => (
+            <SortableTaskCard key={task.id} task={task} />
+          ))}
+          {column.tasks.length === 0 && (
+            <p className="px-1 py-2 text-xs text-gray-400">No tasks</p>
+          )}
         </div>
-      ))}
+      </SortableContext>
     </div>
+  );
+}
+
+function SortableTaskCard({ task }: { task: KanbanTask }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: task.id, data: { type: "task" } });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      <TaskCardView task={task} />
+    </div>
+  );
+}
+
+function TaskCardView({
+  task,
+  overlay = false,
+}: {
+  task: KanbanTask;
+  overlay?: boolean;
+}) {
+  return (
+    <article
+      className={`rounded-md bg-white p-3 ring-1 ring-gray-200/70 ${
+        overlay
+          ? "rotate-2 cursor-grabbing opacity-90 shadow-lg"
+          : "cursor-grab shadow-sm hover:shadow-md"
+      }`}
+    >
+      <h3 className="text-sm font-medium text-gray-900">{task.title}</h3>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <span
+          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ring-inset ${PRIORITY_STYLES[task.priority]}`}
+        >
+          {task.priority}
+        </span>
+        {task.labels.map((label) => (
+          <span
+            key={label.id}
+            className="rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+            style={{ backgroundColor: label.color }}
+          >
+            {label.name}
+          </span>
+        ))}
+      </div>
+    </article>
   );
 }
