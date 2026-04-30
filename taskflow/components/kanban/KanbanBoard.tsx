@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, type FormEvent } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -13,6 +14,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useKanbanDnd } from "@/hooks/useKanbanDnd";
+import { createTask } from "@/lib/actions/tasks";
 
 export type KanbanPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
@@ -36,6 +38,7 @@ export type KanbanColumn = {
 };
 
 interface Props {
+  projectId: string;
   columns: KanbanColumn[];
 }
 
@@ -46,9 +49,10 @@ const PRIORITY_STYLES: Record<KanbanPriority, string> = {
   URGENT: "bg-red-50 text-red-700 ring-red-200",
 };
 
-export function KanbanBoard({ columns: initialColumns }: Props) {
+export function KanbanBoard({ projectId, columns: initialColumns }: Props) {
   const {
     columns,
+    setColumns,
     activeTask,
     sensors,
     handleDragStart,
@@ -56,6 +60,17 @@ export function KanbanBoard({ columns: initialColumns }: Props) {
     handleDragEnd,
     handleDragCancel,
   } = useKanbanDnd(initialColumns);
+
+  async function addTask(columnId: string, title: string) {
+    const created = await createTask(projectId, columnId, title, "MEDIUM");
+    setColumns((prev) =>
+      prev.map((col) =>
+        col.id === columnId
+          ? { ...col, tasks: [...col.tasks, created] }
+          : col,
+      ),
+    );
+  }
 
   return (
     <DndContext
@@ -68,7 +83,7 @@ export function KanbanBoard({ columns: initialColumns }: Props) {
     >
       <div className="flex h-[calc(100vh-180px)] gap-4 overflow-x-auto pb-4">
         {columns.map((column) => (
-          <ColumnView key={column.id} column={column} />
+          <ColumnView key={column.id} column={column} onAddTask={addTask} />
         ))}
       </div>
       <DragOverlay dropAnimation={null}>
@@ -78,7 +93,13 @@ export function KanbanBoard({ columns: initialColumns }: Props) {
   );
 }
 
-function ColumnView({ column }: { column: KanbanColumn }) {
+function ColumnView({
+  column,
+  onAddTask,
+}: {
+  column: KanbanColumn;
+  onAddTask: (columnId: string, title: string) => Promise<void>;
+}) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
     data: { type: "column" },
@@ -107,7 +128,90 @@ function ColumnView({ column }: { column: KanbanColumn }) {
           )}
         </div>
       </SortableContext>
+      <div className="border-t border-gray-200 p-2">
+        <AddTaskForm onSubmit={(title) => onAddTask(column.id, title)} />
+      </div>
     </div>
+  );
+}
+
+function AddTaskForm({
+  onSubmit,
+}: {
+  onSubmit: (title: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function close() {
+    setOpen(false);
+    setTitle("");
+    setError(null);
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    const trimmed = title.trim();
+    if (!trimmed || pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      await onSubmit(trimmed);
+      close();
+    } catch (err) {
+      console.error(err);
+      setError("Failed to create task");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-full rounded-md px-2 py-1.5 text-left text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+      >
+        + Add Task
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+      <input
+        autoFocus
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Task title"
+        disabled={pending}
+        className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") close();
+        }}
+      />
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <div className="flex items-center gap-2">
+        <button
+          type="submit"
+          disabled={pending || title.trim().length === 0}
+          className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {pending ? "Adding…" : "Add"}
+        </button>
+        <button
+          type="button"
+          onClick={close}
+          disabled={pending}
+          className="text-xs text-gray-500 hover:text-gray-700"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 

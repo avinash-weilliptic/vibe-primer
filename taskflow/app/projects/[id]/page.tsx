@@ -57,7 +57,7 @@ export default async function ProjectKanbanPage({
         <span className="text-gray-900">{project.name}</span>
       </div>
       <h1 className="mb-6 text-2xl font-semibold">{project.name}</h1>
-      <KanbanBoard columns={columns} />
+      <KanbanBoard projectId={project.id} columns={columns} />
     </main>
   );
 }
