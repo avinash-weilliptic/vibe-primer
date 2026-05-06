@@ -34,6 +34,7 @@ export function TaskDrawer({
   const [priority, setPriority] = useState<Priority>(task.priority);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [expanding, setExpanding] = useState(false);
 
   // Re-seed the form when the user opens a different task.
   useEffect(() => {
@@ -41,8 +42,46 @@ export function TaskDrawer({
     setDescription(task.description ?? "");
     setPriority(task.priority);
     setError(null);
+    setExpanding(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id]);
+
+  const expandWithAI = async () => {
+    if (expanding) return;
+    setError(null);
+    setExpanding(true);
+    try {
+      const res = await fetch("/api/ai/expand-task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim() || task.title,
+          existingDescription: description,
+        }),
+      });
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      setDescription("");
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        setDescription(acc);
+      }
+    } catch (err) {
+      console.error("expand-task failed", err);
+      setError(
+        err instanceof Error ? `Expand failed: ${err.message}` : "Expand failed",
+      );
+    } finally {
+      setExpanding(false);
+    }
+  };
 
   // Escape closes the drawer.
   useEffect(() => {
@@ -130,17 +169,57 @@ export function TaskDrawer({
         </div>
 
         <div>
-          <label
-            htmlFor="task-desc"
-            className="text-[11px] font-medium uppercase tracking-wide text-zinc-500"
-          >
-            Description
-          </label>
+          <div className="flex items-center justify-between">
+            <label
+              htmlFor="task-desc"
+              className="text-[11px] font-medium uppercase tracking-wide text-zinc-500"
+            >
+              Description
+            </label>
+            <button
+              type="button"
+              onClick={expandWithAI}
+              disabled={pending || expanding || description.length > 100}
+              title={
+                description.length > 100
+                  ? "Description already has more than 100 characters"
+                  : "Expand into Overview / Acceptance Criteria / Notes"
+              }
+              className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-600"
+            >
+              {expanding ? (
+                <svg
+                  className="h-3 w-3 animate-spin text-zinc-500"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="8"
+                    cy="8"
+                    r="6"
+                    stroke="currentColor"
+                    strokeOpacity="0.25"
+                    strokeWidth="2"
+                  />
+                  <path
+                    d="M14 8a6 6 0 0 0-6-6"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              ) : (
+                <span aria-hidden="true">✨</span>
+              )}
+              <span>{expanding ? "Expanding..." : "Expand with AI"}</span>
+            </button>
+          </div>
           <textarea
             id="task-desc"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            disabled={pending}
+            disabled={pending || expanding}
             rows={6}
             placeholder="Add a description..."
             className="mt-1.5 w-full resize-y rounded-md border border-zinc-200 bg-white px-2.5 py-2 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none disabled:bg-zinc-50"
