@@ -1,5 +1,19 @@
 "use client";
 
+import {
+  DndContext,
+  DragOverlay,
+  closestCorners,
+  useDroppable,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { useKanbanDnd } from "@/hooks/useKanbanDnd";
+
 export interface KanbanLabel {
   id: string;
   name: string;
@@ -37,29 +51,91 @@ const PRIORITY_STYLES: Record<string, string> = {
 };
 
 export function KanbanBoard({ project }: { project: KanbanProject }) {
+  const {
+    columns,
+    activeTask,
+    sensors,
+    handleDragStart,
+    handleDragOver,
+    handleDragEnd,
+    handleDragCancel,
+  } = useKanbanDnd(project);
+
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4">
-      {project.columns.map((column) => (
-        <BoardColumn key={column.id} column={column} />
-      ))}
-    </div>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
+      <div className="flex gap-4 overflow-x-auto pb-4">
+        {columns.map((column) => (
+          <BoardColumn key={column.id} column={column} />
+        ))}
+      </div>
+      <DragOverlay>
+        {activeTask ? (
+          <div className="opacity-80">
+            <TaskCard task={activeTask} />
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }
 
 function BoardColumn({ column }: { column: KanbanColumn }) {
+  const { setNodeRef, isOver } = useDroppable({ id: column.id });
+  const taskIds = column.tasks.map((t) => t.id);
+
   return (
-    <div className="flex h-[calc(100vh-180px)] w-[280px] shrink-0 flex-col rounded-lg bg-gray-100">
+    <div
+      ref={setNodeRef}
+      className={`flex h-[calc(100vh-180px)] w-[280px] shrink-0 flex-col rounded-lg bg-gray-100 transition-colors ${
+        isOver ? "ring-2 ring-blue-300" : ""
+      }`}
+    >
       <header className="flex items-center justify-between border-b border-gray-200 px-3 py-2">
         <h2 className="text-sm font-medium text-gray-800">{column.name}</h2>
         <span className="text-xs text-gray-500">{column.tasks.length}</span>
       </header>
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
-        {column.tasks.length === 0 ? (
-          <p className="px-1 py-3 text-xs italic text-gray-400">No tasks</p>
-        ) : (
-          column.tasks.map((task) => <TaskCard key={task.id} task={task} />)
-        )}
-      </div>
+      <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
+        <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
+          {column.tasks.length === 0 ? (
+            <p className="px-1 py-3 text-xs italic text-gray-400">No tasks</p>
+          ) : (
+            column.tasks.map((task) => (
+              <SortableTaskCard key={task.id} task={task} />
+            ))
+          )}
+        </div>
+      </SortableContext>
+    </div>
+  );
+}
+
+function SortableTaskCard({ task }: { task: KanbanTask }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: task.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`cursor-grab touch-none active:cursor-grabbing ${
+        isDragging ? "opacity-30" : ""
+      }`}
+    >
+      <TaskCard task={task} />
     </div>
   );
 }
