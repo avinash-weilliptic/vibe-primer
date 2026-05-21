@@ -62,7 +62,7 @@ export default async function ProjectBoardPage({
       )}
 
       <div className="mt-8">
-        <KanbanBoard columns={columns} />
+        <KanbanBoard columns={columns} projectId={project.id} />
       </div>
     </main>
   );

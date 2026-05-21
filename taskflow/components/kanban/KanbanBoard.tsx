@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, type FormEvent } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -39,6 +40,8 @@ const PRIORITY_STYLES: Record<Priority, { label: string; className: string }> =
       className: "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300",
     },
   };
+
+const PRIORITY_OPTIONS = Object.keys(PRIORITY_STYLES) as Priority[];
 
 function PriorityBadge({ priority }: { priority: Priority }) {
   const { label, className } = PRIORITY_STYLES[priority];
@@ -118,8 +121,119 @@ function SortableTaskCard({
   );
 }
 
-/** A column with a droppable task area. */
-function KanbanColumn({ column }: { column: ColumnData }) {
+/** Inline "+ Add Task" affordance: a button that expands into a small form. */
+function AddTask({
+  columnId,
+  onAdd,
+}: {
+  columnId: string;
+  onAdd: (
+    columnId: string,
+    title: string,
+    priority: Priority,
+  ) => Promise<unknown>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [priority, setPriority] = useState<Priority>("MEDIUM");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function reset() {
+    setTitle("");
+    setPriority("MEDIUM");
+    setError(null);
+    setOpen(false);
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (pending || !title.trim()) return;
+    setPending(true);
+    setError(null);
+    try {
+      await onAdd(columnId, title, priority);
+      reset();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add task.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-black/50 transition-colors hover:bg-black/[0.05] hover:text-black/80 dark:text-white/50 dark:hover:bg-white/[0.07] dark:hover:text-white/80"
+      >
+        + Add Task
+      </button>
+    );
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-2 rounded-lg border border-black/10 bg-white p-2 shadow-sm dark:border-white/10 dark:bg-white/5"
+    >
+      <input
+        autoFocus
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        placeholder="Task title"
+        disabled={pending}
+        className="w-full rounded border border-black/10 bg-transparent px-2 py-1 text-sm outline-none focus:border-black/30 disabled:opacity-50 dark:border-white/15 dark:focus:border-white/40"
+      />
+      <select
+        value={priority}
+        onChange={(event) => setPriority(event.target.value as Priority)}
+        disabled={pending}
+        className="w-full rounded border border-black/10 bg-transparent px-2 py-1 text-xs outline-none disabled:opacity-50 dark:border-white/15"
+      >
+        {PRIORITY_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {PRIORITY_STYLES[option].label}
+          </option>
+        ))}
+      </select>
+      {error && (
+        <p className="text-[11px] text-red-600 dark:text-red-400">{error}</p>
+      )}
+      <div className="flex gap-1.5">
+        <button
+          type="submit"
+          disabled={pending || !title.trim()}
+          className="rounded bg-blue-600 px-2.5 py-1 text-xs font-medium text-white transition-opacity hover:bg-blue-700 disabled:opacity-50"
+        >
+          {pending ? "Adding…" : "Add"}
+        </button>
+        <button
+          type="button"
+          onClick={reset}
+          disabled={pending}
+          className="rounded px-2.5 py-1 text-xs font-medium text-black/60 hover:bg-black/[0.05] disabled:opacity-50 dark:text-white/60 dark:hover:bg-white/10"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** A column with a droppable task area and an inline add-task form. */
+function KanbanColumn({
+  column,
+  onAddTask,
+}: {
+  column: ColumnData;
+  onAddTask: (
+    columnId: string,
+    title: string,
+    priority: Priority,
+  ) => Promise<unknown>;
+}) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
     data: { type: "column" },
@@ -144,7 +258,7 @@ function KanbanColumn({ column }: { column: ColumnData }) {
           strategy={verticalListSortingStrategy}
         >
           {column.tasks.length === 0 ? (
-            <p className="px-1 py-4 text-xs text-black/40 dark:text-white/40">
+            <p className="px-1 py-3 text-xs text-black/40 dark:text-white/40">
               No tasks
             </p>
           ) : (
@@ -157,12 +271,19 @@ function KanbanColumn({ column }: { column: ColumnData }) {
             ))
           )}
         </SortableContext>
+        <AddTask columnId={column.id} onAdd={onAddTask} />
       </div>
     </section>
   );
 }
 
-export function KanbanBoard({ columns: initialColumns }: { columns: ColumnData[] }) {
+export function KanbanBoard({
+  columns: initialColumns,
+  projectId,
+}: {
+  columns: ColumnData[];
+  projectId: string;
+}) {
   const {
     columns,
     activeTask,
@@ -171,7 +292,8 @@ export function KanbanBoard({ columns: initialColumns }: { columns: ColumnData[]
     onDragOver,
     onDragEnd,
     onDragCancel,
-  } = useKanbanDnd(initialColumns);
+    addTask,
+  } = useKanbanDnd(initialColumns, projectId);
 
   return (
     <DndContext
@@ -185,7 +307,11 @@ export function KanbanBoard({ columns: initialColumns }: { columns: ColumnData[]
     >
       <div className="flex gap-4 overflow-x-auto pb-4">
         {columns.map((column) => (
-          <KanbanColumn key={column.id} column={column} />
+          <KanbanColumn
+            key={column.id}
+            column={column}
+            onAddTask={addTask}
+          />
         ))}
       </div>
 
